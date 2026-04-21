@@ -44,6 +44,7 @@ message ControlPermissions {
     recording = 9;
     block_input = 10;
     remote_modify = 11;
+    privacy_mode = 12;
   }
   uint64 permissions = 1;
 }
