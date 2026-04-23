@@ -635,6 +635,7 @@ message PermissionInfo {
     Restart = 5;
     Recording = 6;
     BlockInput = 7;
+    PrivacyMode = 8;
   }
 
   Permission permission = 1;
