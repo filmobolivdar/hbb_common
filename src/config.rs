@@ -44,7 +44,7 @@ pub const ENCRYPT_MAX_LEN: usize = 128; // used for password, pin, etc, not for 
 
 const PERMANENT_PASSWORD_HASH_PREFIX: &str = "01";
 const PERMANENT_PASSWORD_H1_LEN: usize = 32;
-const DEFAULT_SALT_LEN: usize = 6;
+const DEFAULT_SALT_LEN: usize = 32;
 
 fn is_permanent_password_hashed_storage(v: &str) -> bool {
     decode_permanent_password_h1_from_storage(v).is_some()
