@@ -103,6 +103,7 @@ message RegisterPkResponse {
     INVALID_ID_FORMAT = 5;
     NOT_SUPPORT = 6;
     SERVER_ERROR = 7;
+    NOT_DEPLOYED = 8;
   }
   Result result = 1;
   int32 keep_alive = 2;
