@@ -218,9 +218,12 @@ pub(super) fn password_is_empty_or_not_hashed(permanent_password_storage: &str) 
     if decode_permanent_password_h1_from_storage(permanent_password_storage).is_some() {
         return false;
     }
-    let (_, decrypted, should_store) =
+    if permanent_password_storage.starts_with(PERMANENT_PASSWORD_ENC_VERSION) {
+        return false;
+    }
+    let (_, decrypted, looks_like_plaintext) =
         decrypt_str_or_original(permanent_password_storage, PASSWORD_ENC_VERSION);
-    decrypted || should_store
+    decrypted || looks_like_plaintext
 }
 
 #[cfg(test)]
@@ -423,5 +426,10 @@ mod tests {
             + &base64::encode(invalid_payload, base64::Variant::Original);
 
         assert!(!password_is_empty_or_not_hashed(&locked_storage));
+    }
+
+    #[test]
+    fn test_password_is_empty_or_not_hashed_treats_invalid_01_storage_as_hashed() {
+        assert!(!password_is_empty_or_not_hashed("01not-a-valid-hash"));
     }
 }
