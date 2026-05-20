@@ -23,13 +23,12 @@ mod permanent_password;
 
 pub use permanent_password::{
     compute_permanent_password_h1, decode_permanent_password_h1_from_storage,
-    local_permanent_password_storage_is_usable_for_auth,
+    decode_preset_password_h1_from_storage, local_permanent_password_storage_is_usable_for_auth,
     preset_permanent_password_storage_is_usable_for_auth, ENCRYPT_MAX_LEN,
 };
 use permanent_password::{
     decode_permanent_password_h1_from_hashed_storage, decrypt_permanent_password_str_or_original,
-    encode_permanent_password_encrypted_storage_from_h1, normalize_preset_password_storage,
-    password_is_empty_or_not_hashed, permanent_password_storage_is_hashed,
+    encode_permanent_password_encrypted_storage_from_h1, password_is_empty_or_not_hashed,
     preset_permanent_password_storage_matches_plain, DEFAULT_SALT_LEN, PASSWORD_ENC_VERSION,
     PERMANENT_PASSWORD_H1_LEN,
 };
@@ -1409,7 +1408,7 @@ impl Config {
         let hard_settings = HARD_SETTINGS.read().unwrap();
         let storage = hard_settings.get("password").cloned().unwrap_or_default();
         let salt = hard_settings.get("salt").cloned().unwrap_or_default();
-        (normalize_preset_password_storage(storage, &salt), salt)
+        (storage, salt)
     }
 
     pub fn get_effective_permanent_password_salt() -> String {
@@ -1422,7 +1421,7 @@ impl Config {
         }
         let (preset_storage, preset_salt) = Self::get_preset_password_storage_and_salt();
         if !preset_salt.is_empty() {
-            if permanent_password_storage_is_hashed(&preset_storage) {
+            if preset_permanent_password_storage_is_usable_for_auth(&preset_storage, &preset_salt) {
                 return preset_salt;
             }
             return String::new();
