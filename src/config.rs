@@ -1653,10 +1653,7 @@ impl Config {
     // TODO: `Config::set()` does not invalidate trusted devices when permanent password/salt changes.
     // This matches historical behavior, but may need revisiting in a separate PR.
     pub fn set(mut cfg: Config) -> bool {
-        if let Err(err) = Self::migrate_permanent_password_to_encrypted_hashed_storage(&mut cfg) {
-            log::error!("Refusing to set config with invalid permanent password storage: {err}");
-            return false;
-        }
+        Self::prepare_config_for_store(&mut cfg);
         let mut lock = CONFIG.write().unwrap();
         if *lock == cfg {
             return false;
@@ -3481,6 +3478,25 @@ mod tests {
         assert!(cfg.password.is_empty());
         assert!(cfg.salt.is_empty());
         assert_eq!(cfg.id, "123456789");
+    }
+
+    #[test]
+    fn test_set_clears_invalid_permanent_password_and_keeps_unrelated_fields() {
+        let mut cfg = Config::default();
+        let invalid_payload =
+            crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
+        cfg.password = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
+            + &base64::encode(invalid_payload, base64::Variant::Original);
+        cfg.id = "123456789".to_owned();
+
+        with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+            assert!(Config::set(cfg));
+
+            let updated = Config::get();
+            assert!(updated.password.is_empty());
+            assert!(updated.salt.is_empty());
+            assert_eq!(updated.id, "123456789");
+        });
     }
 
     #[test]
