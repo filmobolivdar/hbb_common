@@ -274,7 +274,7 @@ mod tests {
         let (inner, decrypted, should_store) = decrypt_permanent_password_str_or_original(&storage);
         assert!(decrypted);
         assert!(!should_store);
-        assert!(inner.starts_with(HBBS_PRESET_PASSWORD_HASH_PREFIX));
+        assert!(inner.starts_with(PERMANENT_PASSWORD_HASH_PREFIX));
         assert_eq!(
             decode_permanent_password_h1_from_storage(&storage),
             Some(h1)
