@@ -3427,7 +3427,7 @@ mod tests {
         assert!(changed);
         assert!(cfg.password.starts_with(PERMANENT_PASSWORD_ENC_VERSION));
         assert!(!is_permanent_password_hashed_storage(&cfg.password));
-        assert_eq!(cfg.salt.chars().count(), 32);
+        assert_eq!(cfg.salt.chars().count(), DEFAULT_SALT_LEN);
 
         let (inner, decrypted, _) = decrypt_permanent_password_str_or_original(&cfg.password);
         assert!(decrypted);
