@@ -145,7 +145,14 @@ pub fn preset_permanent_password_storage_is_usable_for_auth(storage: &str, salt:
     if salt.is_empty() {
         return true;
     }
-    decode_permanent_password_h1_from_storage(storage).is_some()
+    decode_preset_password_h1_from_storage(storage).is_some()
+}
+
+fn decode_preset_password_h1_from_storage(
+    storage: &str,
+) -> Option<[u8; PERMANENT_PASSWORD_H1_LEN]> {
+    decode_permanent_password_h1_from_storage(storage)
+        .or_else(|| decode_hbbs_preset_password_h1_from_storage(storage))
 }
 
 pub fn local_permanent_password_storage_is_usable_for_auth(storage: &str, salt: &str) -> bool {
@@ -194,7 +201,7 @@ pub(super) fn preset_permanent_password_storage_matches_plain(
     if salt.is_empty() {
         return storage == input;
     }
-    let Some(stored_h1) = decode_permanent_password_h1_from_storage(storage) else {
+    let Some(stored_h1) = decode_preset_password_h1_from_storage(storage) else {
         return false;
     };
     let h1 = compute_permanent_password_h1(input, salt);
@@ -250,7 +257,7 @@ mod tests {
         let password = "p@ssw0rd";
         let h1 = compute_permanent_password_h1(password, salt);
         let stored = encode_permanent_password_storage_from_h1(&h1);
-        assert!(stored.starts_with(HBBS_PRESET_PASSWORD_HASH_PREFIX));
+        assert!(stored.starts_with(PERMANENT_PASSWORD_HASH_PREFIX));
         assert!(is_permanent_password_hashed_storage(&stored));
         let decoded = decode_permanent_password_h1_from_hashed_storage(&stored).unwrap();
         assert_eq!(&decoded[..], &h1[..]);
@@ -300,6 +307,23 @@ mod tests {
             normalize_preset_password_storage(storage, "salt123"),
             encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap()
         );
+    }
+
+    #[test]
+    fn test_hbbs_00_hashed_preset_password_storage_matches_plain_with_salt() {
+        let salt = "salt123";
+        let h1 = compute_permanent_password_h1("p@ssw0rd", salt);
+        let storage = encode_hbbs_preset_password_storage_from_h1(&h1);
+
+        assert!(preset_permanent_password_storage_is_usable_for_auth(
+            &storage, salt
+        ));
+        assert!(preset_permanent_password_storage_matches_plain(
+            &storage, salt, "p@ssw0rd"
+        ));
+        assert!(!preset_permanent_password_storage_matches_plain(
+            &storage, salt, "wrong"
+        ));
     }
 
     #[test]
