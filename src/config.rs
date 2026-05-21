@@ -1429,13 +1429,9 @@ impl Config {
         Self::get_salt()
     }
 
-    fn has_usable_local_permanent_password() -> bool {
+    pub fn has_local_permanent_password() -> bool {
         let (local_storage, local_salt) = Self::get_local_permanent_password_storage_and_salt();
         local_permanent_password_storage_is_usable_for_auth(&local_storage, &local_salt)
-    }
-
-    pub fn has_local_permanent_password() -> bool {
-        Self::has_usable_local_permanent_password()
     }
 
     // This shouldn't happen under normal circumstances because the salt

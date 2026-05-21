@@ -56,12 +56,6 @@ pub(super) fn decode_permanent_password_h1_from_hashed_storage(
     decode_password_h1_after_prefix(storage, PERMANENT_PASSWORD_HASH_PREFIX)
 }
 
-fn decode_hbbs_preset_password_h1_from_storage(
-    storage: &str,
-) -> Option<[u8; PERMANENT_PASSWORD_H1_LEN]> {
-    decode_password_h1_after_prefix(storage, HBBS_PRESET_PASSWORD_HASH_PREFIX)
-}
-
 fn decode_password_h1_after_prefix(
     storage: &str,
     prefix: &str,
@@ -102,7 +96,7 @@ pub(super) fn decrypt_permanent_password_str_or_original(storage: &str) -> (Stri
     (storage.to_owned(), false, !storage.is_empty())
 }
 
-pub(super) fn permanent_password_storage_is_usable_for_auth(storage: &str, salt: &str) -> bool {
+pub fn local_permanent_password_storage_is_usable_for_auth(storage: &str, salt: &str) -> bool {
     if storage.is_empty() {
         return false;
     }
@@ -137,27 +131,15 @@ pub fn preset_permanent_password_storage_is_usable_for_auth(storage: &str, salt:
 pub fn decode_preset_password_h1_from_storage(
     storage: &str,
 ) -> Option<[u8; PERMANENT_PASSWORD_H1_LEN]> {
-    decode_hbbs_preset_password_h1_from_storage(storage)
-}
-
-pub fn local_permanent_password_storage_is_usable_for_auth(storage: &str, salt: &str) -> bool {
-    if storage.starts_with(PERMANENT_PASSWORD_ENC_VERSION)
-        && decode_permanent_password_h1_from_storage(storage).is_none()
-    {
-        log::error!(
-            "Local permanent password storage looks encrypted but cannot be decoded as a hash"
-        );
-        return false;
-    }
-    permanent_password_storage_is_usable_for_auth(storage, salt)
+    decode_password_h1_after_prefix(storage, HBBS_PRESET_PASSWORD_HASH_PREFIX)
 }
 
 #[cfg(test)]
-fn permanent_password_storage_matches_plain(storage: &str, salt: &str, input: &str) -> bool {
+fn local_permanent_password_storage_matches_plain(storage: &str, salt: &str, input: &str) -> bool {
     if storage.is_empty() || input.is_empty() {
         return false;
     }
-    if !permanent_password_storage_is_usable_for_auth(storage, salt) {
+    if !local_permanent_password_storage_is_usable_for_auth(storage, salt) {
         return false;
     }
     if let Some(stored_h1) = decode_permanent_password_h1_from_storage(storage) {
@@ -187,14 +169,6 @@ pub(super) fn preset_permanent_password_storage_matches_plain(
     };
     let h1 = compute_permanent_password_h1(input, salt);
     constant_time_eq_32(&h1, &stored_h1)
-}
-
-#[cfg(test)]
-fn local_permanent_password_storage_matches_plain(storage: &str, salt: &str, input: &str) -> bool {
-    if !local_permanent_password_storage_is_usable_for_auth(storage, salt) {
-        return false;
-    }
-    permanent_password_storage_matches_plain(storage, salt, input)
 }
 
 pub fn decode_permanent_password_h1_from_storage(
@@ -271,13 +245,13 @@ mod tests {
         let h1 = compute_permanent_password_h1("p@ssw0rd", salt);
         let storage = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
 
-        assert!(permanent_password_storage_is_usable_for_auth(
+        assert!(local_permanent_password_storage_is_usable_for_auth(
             &storage, salt
         ));
-        assert!(permanent_password_storage_matches_plain(
+        assert!(local_permanent_password_storage_matches_plain(
             &storage, salt, "p@ssw0rd"
         ));
-        assert!(!permanent_password_storage_matches_plain(
+        assert!(!local_permanent_password_storage_matches_plain(
             &storage, salt, "wrong"
         ));
     }
@@ -342,8 +316,10 @@ mod tests {
         let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
         let storage = encode_permanent_password_storage_from_h1(&h1);
 
-        assert!(!permanent_password_storage_is_usable_for_auth(&storage, ""));
-        assert!(!permanent_password_storage_matches_plain(
+        assert!(!local_permanent_password_storage_is_usable_for_auth(
+            &storage, ""
+        ));
+        assert!(!local_permanent_password_storage_matches_plain(
             &storage, "", "p@ssw0rd"
         ));
     }
@@ -384,12 +360,6 @@ mod tests {
             + &base64::encode(encrypted, base64::Variant::Original);
 
         for storage in ["01invalid", &encrypted_non_hash] {
-            assert!(!permanent_password_storage_is_usable_for_auth(
-                storage, "salt123"
-            ));
-            assert!(!permanent_password_storage_matches_plain(
-                storage, "salt123", storage
-            ));
             assert!(!local_permanent_password_storage_is_usable_for_auth(
                 storage, "salt123"
             ));
@@ -404,8 +374,10 @@ mod tests {
         let h1 = compute_permanent_password_h1("plain-looking-hash", "salt123");
         let storage = encode_permanent_password_storage_from_h1(&h1);
 
-        assert!(!permanent_password_storage_is_usable_for_auth(&storage, ""));
-        assert!(!permanent_password_storage_matches_plain(
+        assert!(!local_permanent_password_storage_is_usable_for_auth(
+            &storage, ""
+        ));
+        assert!(!local_permanent_password_storage_matches_plain(
             &storage, "", &storage
         ));
     }
