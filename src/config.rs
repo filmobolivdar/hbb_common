@@ -30,10 +30,10 @@ use permanent_password::{
     decode_permanent_password_h1_from_hashed_storage, decrypt_permanent_password_str_or_original,
     encode_permanent_password_encrypted_storage_from_h1, password_is_empty_or_not_hashed,
     preset_permanent_password_storage_matches_plain, DEFAULT_SALT_LEN, PASSWORD_ENC_VERSION,
-    PERMANENT_PASSWORD_H1_LEN,
+    PERMANENT_PASSWORD_ENC_VERSION, PERMANENT_PASSWORD_H1_LEN,
 };
 #[cfg(test)]
-use permanent_password::{is_permanent_password_hashed_storage, PERMANENT_PASSWORD_ENC_VERSION};
+use permanent_password::is_permanent_password_hashed_storage;
 
 use crate::{
     compress::{compress, decompress},
@@ -653,6 +653,9 @@ impl Config {
         }
         let (decrypted_storage, decrypted, _) =
             decrypt_permanent_password_str_or_original(&config.password);
+        if config.password.starts_with(PERMANENT_PASSWORD_ENC_VERSION) && !decrypted {
+            return Err(anyhow!("Invalid permanent password encrypted hash storage"));
+        }
         if decrypted {
             Self::ensure_permanent_password_hash_salt(config)?;
             if decode_permanent_password_h1_from_hashed_storage(&decrypted_storage).is_some() {
@@ -3463,17 +3466,25 @@ mod tests {
 
     #[test]
     fn test_prepare_store_clears_invalid_permanent_password_and_keeps_unrelated_fields() {
-        let mut cfg = Config::default();
-        let invalid_payload =
-            crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
-        cfg.password = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
-            + &base64::encode(invalid_payload, base64::Variant::Original);
-        cfg.id = "123456789".to_owned();
+        for password in [
+            {
+                let invalid_payload =
+                    crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
+                PERMANENT_PASSWORD_ENC_VERSION.to_owned()
+                    + &base64::encode(invalid_payload, base64::Variant::Original)
+            },
+            format!("{PERMANENT_PASSWORD_ENC_VERSION}invalid"),
+        ] {
+            let mut cfg = Config::default();
+            cfg.password = password;
+            cfg.salt = "salt123".to_owned();
+            cfg.id = "123456789".to_owned();
 
-        Config::prepare_config_for_store(&mut cfg);
-        assert!(cfg.password.is_empty());
-        assert!(cfg.salt.is_empty());
-        assert_eq!(cfg.id, "123456789");
+            Config::prepare_config_for_store(&mut cfg);
+            assert!(cfg.password.is_empty());
+            assert!(cfg.salt.is_empty());
+            assert_eq!(cfg.id, "123456789");
+        }
     }
 
     #[test]
