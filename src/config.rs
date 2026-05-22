@@ -30,10 +30,7 @@ use permanent_password::{
     decode_permanent_password_h1_from_hashed_storage, decrypt_permanent_password_str_or_original,
     encode_permanent_password_encrypted_storage_from_h1, password_is_empty_or_not_hashed,
     preset_permanent_password_storage_matches_plain, DEFAULT_SALT_LEN, PASSWORD_ENC_VERSION,
-    PERMANENT_PASSWORD_ENC_VERSION, PERMANENT_PASSWORD_H1_LEN,
 };
-#[cfg(test)]
-use permanent_password::is_permanent_password_hashed_storage;
 
 use crate::{
     compress::{compress, decompress},
@@ -601,9 +598,8 @@ impl Config {
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
         let mut store = false;
-        match Self::migrate_permanent_password_to_encrypted_hashed_storage(&mut config) {
-            Ok(changed) => store |= changed,
-            Err(err) => log::error!("Failed to migrate permanent password storage: {err}"),
+        if let Err(err) = Self::normalize_permanent_password_storage(&mut config) {
+            log::error!("Failed to normalize permanent password storage: {err}");
         }
         let mut id_valid = false;
         let (id, encrypted, store2) = decrypt_str_or_original(&config.enc_id, PASSWORD_ENC_VERSION);
@@ -643,43 +639,35 @@ impl Config {
         config
     }
 
-    fn migrate_permanent_password_to_encrypted_hashed_storage(config: &mut Config) -> Result<bool> {
+    fn normalize_permanent_password_storage(config: &mut Config) -> Result<()> {
         if config.password.is_empty() {
-            return Ok(false);
+            return Ok(());
         }
 
         if config.password.starts_with(PASSWORD_ENC_VERSION) {
-            return Self::migrate_encrypted_or_00_prefixed_password(config);
+            let (plain, decrypted, should_store) =
+                decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
+            if decrypted {
+                config.password = plain;
+                return Ok(());
+            }
+            if !should_store {
+                return Err(anyhow!("Invalid permanent password encrypted hash storage"));
+            }
+            return Ok(());
         }
+
         let (decrypted_storage, decrypted, _) =
             decrypt_permanent_password_str_or_original(&config.password);
-        if config.password.starts_with(PERMANENT_PASSWORD_ENC_VERSION) && !decrypted {
-            return Err(anyhow!("Invalid permanent password encrypted hash storage"));
-        }
         if decrypted {
             Self::ensure_permanent_password_hash_salt(config)?;
             if decode_permanent_password_h1_from_hashed_storage(&decrypted_storage).is_some() {
-                return Ok(false);
+                return Ok(());
             }
             return Err(anyhow!("Invalid permanent password encrypted hash storage"));
         }
 
-        Self::ensure_permanent_password_salt(config);
-        let h1 = compute_permanent_password_h1(&config.password, &config.salt);
-        Self::set_permanent_password_h1_storage(config, &h1)
-    }
-
-    fn migrate_encrypted_or_00_prefixed_password(config: &mut Config) -> Result<bool> {
-        let (plain, decrypted, looks_like_plaintext) =
-            decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
-        // If the value looks like an encrypted payload but cannot be decrypted on this
-        // machine, it is most likely copied from another device or corrupted.
-        if !decrypted && !looks_like_plaintext {
-            return Ok(false);
-        }
-        Self::ensure_permanent_password_salt(config);
-        let h1 = compute_permanent_password_h1(&plain, &config.salt);
-        Self::set_permanent_password_h1_storage(config, &h1)
+        Ok(())
     }
 
     fn ensure_permanent_password_hash_salt(config: &Config) -> Result<()> {
@@ -697,19 +685,8 @@ impl Config {
         }
     }
 
-    fn set_permanent_password_h1_storage(
-        config: &mut Config,
-        h1: &[u8; PERMANENT_PASSWORD_H1_LEN],
-    ) -> Result<bool> {
-        let Some(storage) = encode_permanent_password_encrypted_storage_from_h1(h1) else {
-            return Err(anyhow!("Failed to encrypt permanent password hash storage"));
-        };
-        config.password = storage;
-        Ok(true)
-    }
-
     fn prepare_config_for_store(config: &mut Config) {
-        match Self::migrate_permanent_password_to_encrypted_hashed_storage(config) {
+        match Self::normalize_permanent_password_storage(config) {
             Ok(_) => {}
             Err(err) => {
                 // This path is for unrecoverable permanent-password storage, such as
@@ -727,6 +704,12 @@ impl Config {
     fn store(&self) {
         let mut config = self.clone();
         Self::prepare_config_for_store(&mut config);
+        if !config.password.is_empty()
+            && decode_permanent_password_h1_from_storage(&config.password).is_none()
+        {
+            config.password =
+                encrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+        }
         config.enc_id = encrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         config.id = "".to_owned();
         Config::store_(&config, "");
@@ -1651,8 +1634,7 @@ impl Config {
 
     // TODO: `Config::set()` does not invalidate trusted devices when permanent password/salt changes.
     // This matches historical behavior, but may need revisiting in a separate PR.
-    pub fn set(mut cfg: Config) -> bool {
-        Self::prepare_config_for_store(&mut cfg);
+    pub fn set(cfg: Config) -> bool {
         let mut lock = CONFIG.write().unwrap();
         if *lock == cfg {
             return false;
@@ -3267,7 +3249,7 @@ impl Status {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{permanent_password::PERMANENT_PASSWORD_ENC_VERSION, *};
 
     static CONFIG_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -3413,97 +3395,119 @@ mod tests {
     }
 
     #[test]
-    fn test_migrate_plaintext_permanent_password_to_encrypted_hashed_storage() {
+    fn test_normalize_keeps_plaintext_permanent_password_unchanged() {
         let mut cfg = Config::default();
         cfg.password = "p@ssw0rd".to_owned();
         cfg.salt = "".to_owned();
-        let changed =
-            Config::migrate_permanent_password_to_encrypted_hashed_storage(&mut cfg).unwrap();
-        assert!(changed);
-        assert!(cfg.password.starts_with(PERMANENT_PASSWORD_ENC_VERSION));
-        assert!(!is_permanent_password_hashed_storage(&cfg.password));
-        assert_eq!(cfg.salt.chars().count(), DEFAULT_SALT_LEN);
-
-        let (inner, decrypted, _) = decrypt_permanent_password_str_or_original(&cfg.password);
-        assert!(decrypted);
-        assert!(is_permanent_password_hashed_storage(&inner));
-        let stored_h1 = decode_permanent_password_h1_from_hashed_storage(&inner).unwrap();
-        let expected_h1 = compute_permanent_password_h1("p@ssw0rd", &cfg.salt);
-        assert_eq!(stored_h1, expected_h1);
+        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        assert_eq!(cfg.password, "p@ssw0rd");
+        assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_migrate_plaintext_with_00_prefix_permanent_password_to_encrypted_hashed_storage() {
+    fn test_normalize_decrypts_00_permanent_password_without_forcing_store() {
         let mut cfg = Config::default();
-        cfg.password = "00secret".to_owned();
+        let legacy_storage =
+            encrypt_str_or_original("legacy-secret", PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+        cfg.password = legacy_storage;
         cfg.salt = "".to_owned();
-        let changed =
-            Config::migrate_permanent_password_to_encrypted_hashed_storage(&mut cfg).unwrap();
-        assert!(changed);
-        assert!(cfg.password.starts_with(PERMANENT_PASSWORD_ENC_VERSION));
-        assert!(!is_permanent_password_hashed_storage(&cfg.password));
-        assert!(!cfg.salt.is_empty());
-
-        let (inner, decrypted, _) = decrypt_permanent_password_str_or_original(&cfg.password);
-        assert!(decrypted);
-        assert!(is_permanent_password_hashed_storage(&inner));
-        let stored_h1 = decode_permanent_password_h1_from_hashed_storage(&inner).unwrap();
-        let expected_h1 = compute_permanent_password_h1("00secret", &cfg.salt);
-        assert_eq!(stored_h1, expected_h1);
+        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        assert_eq!(cfg.password, "legacy-secret");
+        assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_migrate_rejects_encrypted_hashed_permanent_password_without_salt() {
+    fn test_normalize_rejects_corrupted_00_permanent_password_storage() {
+        let legacy_storage =
+            encrypt_str_or_original("legacy-secret", PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+        let mut invalid_payload = base64::decode(
+            &legacy_storage.as_bytes()[PASSWORD_ENC_VERSION.len()..],
+            base64::Variant::Original,
+        )
+        .unwrap();
+        *invalid_payload.last_mut().unwrap() ^= 1;
+
+        let mut cfg = Config::default();
+        cfg.password = PASSWORD_ENC_VERSION.to_owned()
+            + &base64::encode(invalid_payload, base64::Variant::Original);
+        cfg.salt = "salt123".to_owned();
+
+        assert!(Config::normalize_permanent_password_storage(&mut cfg).is_err());
+    }
+
+    #[test]
+    fn test_normalize_rejects_encrypted_hashed_permanent_password_without_salt() {
         let mut cfg = Config::default();
         let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
         cfg.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
         let original_password = cfg.password.clone();
 
-        assert!(Config::migrate_permanent_password_to_encrypted_hashed_storage(&mut cfg).is_err());
+        assert!(Config::normalize_permanent_password_storage(&mut cfg).is_err());
         assert_eq!(cfg.password, original_password);
         assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_prepare_store_clears_invalid_permanent_password_and_keeps_unrelated_fields() {
-        for password in [
-            {
-                let invalid_payload =
-                    crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
-                PERMANENT_PASSWORD_ENC_VERSION.to_owned()
-                    + &base64::encode(invalid_payload, base64::Variant::Original)
-            },
-            format!("{PERMANENT_PASSWORD_ENC_VERSION}invalid"),
-        ] {
-            let mut cfg = Config::default();
-            cfg.password = password;
-            cfg.salt = "salt123".to_owned();
-            cfg.id = "123456789".to_owned();
-
-            Config::prepare_config_for_store(&mut cfg);
-            assert!(cfg.password.is_empty());
-            assert!(cfg.salt.is_empty());
-            assert_eq!(cfg.id, "123456789");
-        }
-    }
-
-    #[test]
-    fn test_set_clears_invalid_permanent_password_and_keeps_unrelated_fields() {
+    fn test_set_does_not_normalize_permanent_password_storage_in_memory() {
         let mut cfg = Config::default();
         let invalid_payload =
             crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
-        cfg.password = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
+        let invalid_storage = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
             + &base64::encode(invalid_payload, base64::Variant::Original);
+        cfg.password = invalid_storage.clone();
         cfg.id = "123456789".to_owned();
 
         with_config_and_hard_settings(Config::default(), HashMap::new(), || {
             assert!(Config::set(cfg));
 
             let updated = Config::get();
-            assert!(updated.password.is_empty());
+            assert_eq!(updated.password, invalid_storage);
             assert!(updated.salt.is_empty());
             assert_eq!(updated.id, "123456789");
         });
+    }
+
+    #[test]
+    fn test_set_does_not_convert_plaintext_permanent_password_to_storage_format_in_memory() {
+        let mut cfg = Config::default();
+        cfg.password = "legacy-secret".to_owned();
+        cfg.salt = "".to_owned();
+
+        with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+            assert!(Config::set(cfg));
+
+            let updated = Config::get();
+            assert!(!updated.password.starts_with(PASSWORD_ENC_VERSION));
+            assert_eq!(updated.password, "legacy-secret");
+            assert!(updated.salt.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_set_keeps_plaintext_permanent_password_with_current_prefix_in_memory() {
+        let mut cfg = Config::default();
+        cfg.password = "01legacy-secret".to_owned();
+        cfg.salt = "".to_owned();
+
+        with_config_and_hard_settings(Config::default(), HashMap::new(), || {
+            assert!(Config::set(cfg));
+
+            let updated = Config::get();
+            assert_eq!(updated.password, "01legacy-secret");
+            assert!(updated.salt.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_normalize_keeps_plaintext_permanent_password_with_current_prefix_and_long_base64() {
+        let mut cfg = Config::default();
+        let plain = "01".to_owned() + &base64::encode([42u8; 24], base64::Variant::Original);
+        cfg.password = plain.clone();
+        cfg.salt = "".to_owned();
+
+        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        assert_eq!(cfg.password, plain);
+        assert!(cfg.salt.is_empty());
     }
 
     #[test]
@@ -3514,7 +3518,7 @@ mod tests {
         let encrypted_hash_storage =
             encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
         cfg.password = encrypted_hash_storage.clone();
-        assert!(!Config::migrate_permanent_password_to_encrypted_hashed_storage(&mut cfg).unwrap());
+        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
 
         assert!(!Config::apply_permanent_password_storage_for_sync(
             &mut cfg,

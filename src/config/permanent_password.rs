@@ -105,8 +105,11 @@ pub fn local_permanent_password_storage_is_usable_for_auth(storage: &str, salt: 
         return !salt.is_empty();
     }
     if storage.starts_with(PERMANENT_PASSWORD_ENC_VERSION) {
-        log::error!("Permanent password storage looks current but cannot be decoded as a hash");
-        return false;
+        let (_, decrypted, _) = decrypt_permanent_password_str_or_original(storage);
+        if decrypted {
+            log::error!("Permanent password storage looks current but cannot be decoded as a hash");
+            return false;
+        }
     }
 
     let (_, decrypted, looks_like_plaintext) =
@@ -359,14 +362,15 @@ mod tests {
         let encrypted_non_hash = PERMANENT_PASSWORD_ENC_VERSION.to_owned()
             + &base64::encode(encrypted, base64::Variant::Original);
 
-        for storage in ["01invalid", &encrypted_non_hash] {
-            assert!(!local_permanent_password_storage_is_usable_for_auth(
-                storage, "salt123"
-            ));
-            assert!(!local_permanent_password_storage_matches_plain(
-                storage, "salt123", storage
-            ));
-        }
+        assert!(!local_permanent_password_storage_is_usable_for_auth(
+            &encrypted_non_hash,
+            "salt123"
+        ));
+        assert!(!local_permanent_password_storage_matches_plain(
+            &encrypted_non_hash,
+            "salt123",
+            &encrypted_non_hash
+        ));
     }
 
     #[test]
