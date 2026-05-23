@@ -598,8 +598,8 @@ impl Config {
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
         let mut store = false;
-        if let Err(err) = Self::normalize_permanent_password_storage(&mut config) {
-            log::error!("Failed to normalize permanent password storage: {err}");
+        if let Err(err) = Self::validate_or_decrypt_permanent_password_storage(&mut config) {
+            log::error!("Failed to validate or decrypt permanent password storage: {err}");
         }
         let mut id_valid = false;
         let (id, encrypted, store2) = decrypt_str_or_original(&config.enc_id, PASSWORD_ENC_VERSION);
@@ -639,7 +639,7 @@ impl Config {
         config
     }
 
-    fn normalize_permanent_password_storage(config: &mut Config) -> Result<()> {
+    fn validate_or_decrypt_permanent_password_storage(config: &mut Config) -> Result<()> {
         if config.password.is_empty() {
             return Ok(());
         }
@@ -686,7 +686,7 @@ impl Config {
     }
 
     fn prepare_config_for_store(config: &mut Config) {
-        match Self::normalize_permanent_password_storage(config) {
+        match Self::validate_or_decrypt_permanent_password_storage(config) {
             Ok(_) => {}
             Err(err) => {
                 // This path is for unrecoverable permanent-password storage, such as
@@ -3397,29 +3397,29 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_keeps_plaintext_permanent_password_unchanged() {
+    fn test_validate_or_decrypt_keeps_plaintext_permanent_password_unchanged() {
         let mut cfg = Config::default();
         cfg.password = "p@ssw0rd".to_owned();
         cfg.salt = "".to_owned();
-        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
         assert_eq!(cfg.password, "p@ssw0rd");
         assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_normalize_decrypts_00_permanent_password_without_forcing_store() {
+    fn test_validate_or_decrypt_decrypts_00_permanent_password_without_forcing_store() {
         let mut cfg = Config::default();
         let legacy_storage =
             encrypt_str_or_original("legacy-secret", PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         cfg.password = legacy_storage;
         cfg.salt = "".to_owned();
-        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
         assert_eq!(cfg.password, "legacy-secret");
         assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_normalize_rejects_corrupted_00_permanent_password_storage() {
+    fn test_validate_or_decrypt_rejects_corrupted_00_permanent_password_storage() {
         let legacy_storage =
             encrypt_str_or_original("legacy-secret", PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         let mut invalid_payload = base64::decode(
@@ -3434,23 +3434,23 @@ mod tests {
             + &base64::encode(invalid_payload, base64::Variant::Original);
         cfg.salt = "salt123".to_owned();
 
-        assert!(Config::normalize_permanent_password_storage(&mut cfg).is_err());
+        assert!(Config::validate_or_decrypt_permanent_password_storage(&mut cfg).is_err());
     }
 
     #[test]
-    fn test_normalize_rejects_encrypted_hashed_permanent_password_without_salt() {
+    fn test_validate_or_decrypt_rejects_encrypted_hashed_permanent_password_without_salt() {
         let mut cfg = Config::default();
         let h1 = compute_permanent_password_h1("p@ssw0rd", "salt123");
         cfg.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
         let original_password = cfg.password.clone();
 
-        assert!(Config::normalize_permanent_password_storage(&mut cfg).is_err());
+        assert!(Config::validate_or_decrypt_permanent_password_storage(&mut cfg).is_err());
         assert_eq!(cfg.password, original_password);
         assert!(cfg.salt.is_empty());
     }
 
     #[test]
-    fn test_set_does_not_normalize_permanent_password_storage_in_memory() {
+    fn test_set_does_not_validate_or_decrypt_permanent_password_storage_in_memory() {
         let mut cfg = Config::default();
         let invalid_payload =
             crate::password_security::symmetric_crypt(b"not-a-hash", true).unwrap();
@@ -3501,13 +3501,14 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_keeps_plaintext_permanent_password_with_current_prefix_and_long_base64() {
+    fn test_validate_or_decrypt_keeps_plaintext_permanent_password_with_current_prefix_and_long_base64(
+    ) {
         let mut cfg = Config::default();
         let plain = "01".to_owned() + &base64::encode([42u8; 24], base64::Variant::Original);
         cfg.password = plain.clone();
         cfg.salt = "".to_owned();
 
-        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
         assert_eq!(cfg.password, plain);
         assert!(cfg.salt.is_empty());
     }
@@ -3520,7 +3521,7 @@ mod tests {
         let encrypted_hash_storage =
             encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
         cfg.password = encrypted_hash_storage.clone();
-        Config::normalize_permanent_password_storage(&mut cfg).unwrap();
+        Config::validate_or_decrypt_permanent_password_storage(&mut cfg).unwrap();
 
         assert!(!Config::apply_permanent_password_storage_for_sync(
             &mut cfg,

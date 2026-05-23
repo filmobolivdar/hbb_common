@@ -187,7 +187,8 @@ pub fn decode_permanent_password_h1_from_storage(
     None
 }
 
-// If password is empty or not hashed storage, it's safe to update salt.
+// Salt can be updated only when the password is empty, plaintext, or decryptable
+// legacy storage. Current-prefixed storage is treated as salt-bound.
 pub(super) fn password_is_empty_or_not_hashed(permanent_password_storage: &str) -> bool {
     if permanent_password_storage.is_empty() {
         return true;
