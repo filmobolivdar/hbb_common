@@ -1344,11 +1344,13 @@ impl Config {
         salt: &str,
     ) -> Result<bool> {
         if storage.is_empty() {
-            if config.password.is_empty() && config.salt.is_empty() {
+            if config.password.is_empty() && (salt.is_empty() || config.salt == salt) {
                 return Ok(false);
             }
             config.password.clear();
-            config.salt.clear();
+            if !salt.is_empty() {
+                config.salt = salt.to_owned();
+            }
             return Ok(true);
         }
         if salt.is_empty() {
@@ -3605,7 +3607,22 @@ mod tests {
 
         assert!(Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "").unwrap());
         assert!(cfg.password.is_empty());
-        assert!(cfg.salt.is_empty());
+        assert_eq!(cfg.salt, salt);
+    }
+
+    #[test]
+    fn test_permanent_password_sync_empty_storage_uses_incoming_salt() {
+        let old_salt = "old-salt";
+        let h1 = compute_permanent_password_h1("p@ssw0rd", old_salt);
+        let mut cfg = Config::default();
+        cfg.password = encode_permanent_password_encrypted_storage_from_h1(&h1).unwrap();
+        cfg.salt = old_salt.to_owned();
+
+        assert!(
+            Config::apply_permanent_password_storage_for_sync(&mut cfg, "", "new-salt").unwrap()
+        );
+        assert!(cfg.password.is_empty());
+        assert_eq!(cfg.salt, "new-salt");
     }
 
     #[test]
