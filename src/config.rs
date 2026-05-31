@@ -722,14 +722,8 @@ impl Config {
             && decode_permanent_password_h1_from_storage(&config.password).is_none()
         {
             let stored = Config::load_::<Config>("");
-            if stored.password == config.password {
-                config.password = stored.password;
-            } else {
-                config.password = keep_encrypted_storage_if_plaintext_unchanged(
-                    &config.password,
-                    &stored.password,
-                );
-            }
+            config.password =
+                keep_encrypted_storage_if_plaintext_unchanged(&config.password, &stored.password);
         }
         let (stored_id, encrypted, _) =
             decrypt_str_or_original(&config.enc_id, PASSWORD_ENC_VERSION);
