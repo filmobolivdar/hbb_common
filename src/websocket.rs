@@ -168,7 +168,15 @@ impl WsFramedStream {
                         url,
                         e
                     );
-                    bail!(e)
+                    if let tungstenite::Error::Http(response) = &e {
+                        if response.status().is_redirection() {
+                            bail!(
+                                "WebSocket connection failed ({}). The server may not support WebSocket.",
+                                e
+                            )
+                        }
+                    }
+                    bail!("WebSocket error: {}", e)
                 }
             },
         }
