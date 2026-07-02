@@ -2910,6 +2910,8 @@ pub mod keys {
     pub const OPTION_ENABLE_PRIVACY_MODE: &str = "enable-privacy-mode";
     pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str =
         "enable-perm-change-in-accept-window";
+    pub const OPTION_ALLOW_SCOPE_VIOLATION_CLOSE: &str = "allow-scope-violation-close";
+    pub const OPTION_ALLOW_SCOPE_VIOLATION_ALARM: &str = "allow-scope-violation-alarm";
     pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification";
     pub const OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD: &str = "allow-numeric-one-time-password";
     pub const OPTION_ENABLE_LAN_DISCOVERY: &str = "enable-lan-discovery";
@@ -3141,6 +3143,8 @@ pub mod keys {
         OPTION_ENABLE_RECORD_SESSION,
         OPTION_ENABLE_BLOCK_INPUT,
         OPTION_ENABLE_PRIVACY_MODE,
+        OPTION_ALLOW_SCOPE_VIOLATION_CLOSE,
+        OPTION_ALLOW_SCOPE_VIOLATION_ALARM,
         OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION,
         OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD,
         OPTION_ENABLE_LAN_DISCOVERY,
