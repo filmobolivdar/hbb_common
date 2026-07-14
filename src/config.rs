@@ -2918,6 +2918,7 @@ pub mod keys {
     pub const OPTION_DIRECT_SERVER: &str = "direct-server";
     pub const OPTION_DIRECT_ACCESS_PORT: &str = "direct-access-port";
     pub const OPTION_WHITELIST: &str = "whitelist";
+    pub const OPTION_ID_WHITELIST: &str = "id-whitelist";
     pub const OPTION_ALLOW_AUTO_DISCONNECT: &str = "allow-auto-disconnect";
     pub const OPTION_AUTO_DISCONNECT_TIMEOUT: &str = "auto-disconnect-timeout";
     pub const OPTION_ALLOW_ONLY_CONN_WINDOW_OPEN: &str = "allow-only-conn-window-open";
@@ -3151,6 +3152,7 @@ pub mod keys {
         OPTION_DIRECT_SERVER,
         OPTION_DIRECT_ACCESS_PORT,
         OPTION_WHITELIST,
+        OPTION_ID_WHITELIST
         OPTION_ALLOW_AUTO_DISCONNECT,
         OPTION_AUTO_DISCONNECT_TIMEOUT,
         OPTION_ALLOW_ONLY_CONN_WINDOW_OPEN,
